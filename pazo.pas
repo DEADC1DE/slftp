@@ -173,6 +173,7 @@ type
     FUniqueFileListOfRelease: TDictionary<String, Int64>; //< Dictionary with files (including subdirs) and corresponding filesize (biggest value seen on any site) for this release, Key="dir + '/' + filename" and Value=filesize
     FPazoSFV: TPazoSFV;
 	  FUDP_IP: string;                /// DEADC0DE
+		FUDP_Enabled: Boolean;          /// DEADC0DE
 		FUDP_Port: integer;             /// DEADC0DE
 		FUDP_Password: string;          /// DEADC0DE
 		FConfigLoaded: Boolean;         /// DEADC0DE
@@ -281,22 +282,41 @@ end;
 procedure TPazo.LoadUDPConfig; // DEADC0DE
 var
   Ini: TIniFile;
+  IniFilePath: string;
+  RawEnableUDP: string;
 begin
-  if FConfigLoaded then
-    Exit;
-  Ini := TIniFile.Create('slftp.ini');
+  FUDP_Enabled := False;
   try
-    FUDP_IP       := Ini.ReadString('UDPConfig', 'IP', '');
-    FUDP_Port     := Ini.ReadInteger('UDPConfig', 'Port', 0);
-    FUDP_Password := Ini.ReadString('UDPConfig', 'Password', '');
-    FConfigLoaded := True;
-  finally
-    Ini.Free;
+    IniFilePath := ExpandFileName('slftp.ini');
+    Debug(dpError, section, Format('TPazo.LoadUDPConfig: Attempting to load config from %s', [IniFilePath]));
+    Ini := TIniFile.Create(IniFilePath);
+    try
+      FUDP_IP := Ini.ReadString('UDPConfig', 'IP', '');
+      FUDP_Port := Ini.ReadInteger('UDPConfig', 'Port', 0);
+      FUDP_Password := Ini.ReadString('UDPConfig', 'Password', '');
+      RawEnableUDP := Trim(Ini.ReadString('UDPConfig', 'EnableUDP', 'False'));
+      Debug(dpError, section, Format('TPazo.LoadUDPConfig: Raw EnableUDP value: %s', [RawEnableUDP]));
+      if SameText(RawEnableUDP, 'True') then
+        FUDP_Enabled := True
+      else if SameText(RawEnableUDP, 'False') then
+        FUDP_Enabled := False
+      else
+        FUDP_Enabled := False;
+      FConfigLoaded := True;
+      Debug(dpError, section, Format('TPazo.LoadUDPConfig: Loaded config: EnableUDP=%s, IP=%s, Port=%d, Password=hidden',
+        [BoolToStr(FUDP_Enabled, True), FUDP_IP, FUDP_Port]));
+    finally
+      Ini.Free;
+    end;
+  except
+    on E: Exception do
+    begin
+      Debug(dpError, section, Format('[EXCEPTION] TPazo.LoadUDPConfig: %s', [E.Message]));
+      FUDP_Enabled := False;
+      FConfigLoaded := False;
+    end;
   end;
-
-  if (FUDP_IP = '') or (FUDP_Port = 0) or (FUDP_Password = '') then
-    Exit;
-end;	// DEADC0DE
+end;  // DEADC0DE
 
 { TIdThreadSafeInt32WithEvent }
 
@@ -749,7 +769,7 @@ begin
   end;
 end;
 
-function TPazo.RoutesText: String; //DEADC0DE
+function TPazo.RoutesText: String;  // DEADC0DE
 var
   UDP: TUDPBlockSocket;
   i: Integer;
@@ -760,66 +780,127 @@ var
   UDP_IP, UDP_Password: String;
   UDP_Port: Integer;
 begin
+  LoadUDPConfig;
   if PazoSitesList.Count = 0 then
-    Exit;
-  Result := '<c3>[ROUTES]</c> : <b>' + rls.section + ' ' + rls.rlsname + '</b> (' + IntToStr(PazoSitesList.Count) + ' sites)' + #13#10;
-  cbftp := '<c3>[CBFTP]</c> : <b>' + rls.section + ' ' + rls.rlsname + '</b> ';
-
-  for i := 0 to PazoSitesList.Count - 1 do
   begin
-    try
-      ps := TPazoSite(PazoSitesList[i]);
-      if ((ps.status = rssAllowed) or (ps.status = rssShouldPre) or (ps.status = rssRealPre)) then
-        sitelist := sitelist + ps.name + ',';
-    except
-      on e: Exception do
-      begin
-        Debug(dpError, section, Format('[EXCEPTION] TPazo.RoutesText : %s', [e.Message]));
-        break;
-      end;
-    end;
+    Debug(dpError, section, 'TPazo.RoutesText: No sites in PazoSitesList, exiting');
+    Exit;
   end;
 
-  if Length(sitelist) <= 1 then
-    Exit;
-
-  SetLength(sitelist, Length(sitelist) - 1);
-  cbftp := cbftp + sitelist;
-  Result := Result + cbftp;
-
-  if (Result <> lastannounceroutes) then
+  if FUDP_Enabled then
   begin
-    lastannounceroutes := Result;
+    Debug(dpError, section, 'TPazo.RoutesText: UDP enabled, building routes text and sending UDP packet');
+    Result := '<c3>[ROUTES]</c> : <b>' + rls.section + ' ' + rls.rlsname + '</b> (' + IntToStr(PazoSitesList.Count) + ' sites)' + #13#10;
+    cbftp := '<c3>[CBFTP]</c> : <b>' + rls.section + ' ' + rls.rlsname + '</b> ';
+    sitelist := '';
 
-    Ini := TIniFile.Create('slftp.ini');
-    try
-      UDP_IP := Ini.ReadString('UDPConfig', 'IP', '');
-      UDP_Port := Ini.ReadInteger('UDPConfig', 'Port', 0);
-      UDP_Password := Ini.ReadString('UDPConfig', 'Password', '');
-
-      if (UDP_IP = '') or (UDP_Port = 0) or (UDP_Password = '') then
-      begin
-        Debug(dpError, section, 'UDP configuration incomplete in slftp.ini: IP, port or password missing');
-        Exit;
+    for i := 0 to PazoSitesList.Count - 1 do
+    begin
+      try
+        ps := TPazoSite(PazoSitesList[i]);
+        if ((ps.status = rssAllowed) or (ps.status = rssShouldPre) or (ps.status = rssRealPre)) then
+          sitelist := sitelist + ps.name + ',';
+      except
+        on e: Exception do
+        begin
+          Debug(dpError, section, Format('[EXCEPTION] TPazo.RoutesText: %s', [e.Message]));
+          break;
+        end;
       end;
-    finally
-      Ini.Free;
     end;
 
-    UDP := TUDPBlockSocket.Create;
-    try
-      UDP.Connect(UDP_IP, IntToStr(UDP_Port));
-      UDP.SendString(UDP_Password + ' race ' + rls.section + ' ' + rls.rlsname + ' ' + sitelist);
-      UDP.CloseSocket;
-    finally
-      UDP.Free;
+    if Length(sitelist) <= 1 then
+    begin
+      Debug(dpError, section, 'TPazo.RoutesText: Sitelist empty or too short, exiting');
+      Exit;
+    end;
+
+    SetLength(sitelist, Length(sitelist) - 1);
+    cbftp := cbftp + sitelist;
+    Result := Result + cbftp;
+
+    if (Result <> lastannounceroutes) then
+    begin
+      lastannounceroutes := Result;
+
+      try
+        Ini := TIniFile.Create('slftp.ini');
+        try
+          UDP_IP := Ini.ReadString('UDPConfig', 'IP', '');
+          UDP_Port := Ini.ReadInteger('UDPConfig', 'Port', 0);
+          UDP_Password := Ini.ReadString('UDPConfig', 'Password', '');
+
+          if (UDP_IP = '') or (UDP_Port = 0) then
+          begin
+            Debug(dpError, section, Format('TPazo.RoutesText: UDP configuration incomplete: IP=%s, Port=%d', [UDP_IP, UDP_Port]));
+            Exit;
+          end;
+          Debug(dpError, section, Format('TPazo.RoutesText: UDP config: IP=%s, Port=%d, Password=%s', [UDP_IP, UDP_Port, UDP_Password]));
+        finally
+          Ini.Free;
+        end;
+      except
+        on E: Exception do
+        begin
+          Debug(dpError, section, Format('[EXCEPTION] TPazo.RoutesText: Failed to read UDP config: %s', [E.Message]));
+          Exit;
+        end;
+      end;
+
+      try
+        UDP := TUDPBlockSocket.Create;
+        try
+          UDP.Connect(UDP_IP, IntToStr(UDP_Port));
+          if UDP.LastError <> 0 then
+          begin
+            Debug(dpError, section, Format('TPazo.RoutesText: UDP Connect failed: %s', [UDP.LastErrorDesc]));
+            Exit;
+          end;
+          UDP.SendString(UDP_Password + ' race ' + rls.section + ' ' + rls.rlsname + ' ' + sitelist);
+          if UDP.LastError <> 0 then
+          begin
+            Debug(dpError, section, Format('TPazo.RoutesText: UDP SendString failed: %s', [UDP.LastErrorDesc]));
+            Exit;
+          end;
+          Debug(dpError, section, 'TPazo.RoutesText: UDP packet sent successfully');
+          UDP.CloseSocket;
+        finally
+          UDP.Free;
+        end;
+      except
+        on E: Exception do
+        begin
+          Debug(dpError, section, Format('[EXCEPTION] TPazo.RoutesText: UDP operation failed: %s', [E.Message]));
+        end;
+      end;
+    end
+    else
+    begin
+      Debug(dpError, section, 'TPazo.RoutesText: Routes text unchanged, skipping UDP send');
+      Result := '';
     end;
   end
   else
   begin
-    Result := '';
+    Debug(dpError, section, 'TPazo.RoutesText: UDP disabled (FUDP_Enabled=False), building non-UDP routes text');
+    Result := Format('<c3>[ROUTES]</c> : <b>%s</b> (%d sites)', [rls.rlsname, PazoSitesList.Count]);
+    Result := Result + #13#10;
+
+    for ps in PazoSitesList do
+    begin
+      Result := Result + ps.RoutesText;
+    end;
+
+    if (Result <> lastannounceroutes) then
+    begin
+      lastannounceroutes := Result;
+    end
+    else
+    begin
+      Result := '';
+    end;
   end;
-end;	// DEADC0DE
+end;  // DEADC0DE
 
 function TPazo.PRegisterFile(const aDir, aFilename: String; const aFilesize: Int64; const aIsSFV: boolean): Int64;
 var
