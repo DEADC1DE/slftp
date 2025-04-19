@@ -2416,48 +2416,29 @@ begin
     if ((rsd) and (rss)) then
       Break;
 
-    if sdst.site.KillConnectionOnStalledTransferSeconds > 0 then
-    begin
-      fDiffSec := SecondsBetween(Now, started);
-      if fDiffSec > sdst.site.KillConnectionOnStalledTransferSeconds then
-      begin
-        fDirlist := ps2.dirlist.FindDirlist(dir);
-        fDirlist.dirlist_lock.Enter('TPazoRaceTask.Execute');
-        try
-          fDirlistEntry := fDirlist.Find(filename);
-          fDiffMSec := MillisecondsBetween(Now, fDirlist.LastUpdated);
-        finally
-          fDirlist.dirlist_lock.Leave;
-        end;
+		if sdst.site.KillConnectionOnStalledTransferSeconds > 0 then
+		begin
+			fDiffSec := SecondsBetween(Now, started);
+			if fDiffSec > sdst.site.KillConnectionOnStalledTransferSeconds then
+			begin
+				// Removed file size check since it’s unreliable with hide_incomplete_file_size = 1
+				// and should not cause transfer abort. Rely on long race break timeout instead.
+			end;
+		end;
 
-        // if the dirlist is fairly up to date and shows a file size of 0 bytes,
-        // kill the connection to abort the transfer. the ABOR command does not
-        // work (at least on glftpd)
-        begin
-          if (fDiffMSec < 200) and (fDirlistEntry.filesize = 0) then
-          begin
-            irc_Adderror(Format('<c4>[STALLED]</c> [%s]: File size 0 for %d seconds - kill connection', [tname, fDiffSec]));
-            sdst.DestroySocketAndRelogin('TPazoRaceTask');
-            ssrc.DestroySocketAndRelogin('TPazoRaceTask');
-            readyerror := True;
-            exit;
-          end;
-        end;
-      end;
-    end;
+		if (SecondsBetween(Now, started) > 600) then
+		begin
+			Debug(dpError, c_section, Format('[iNFO] Long race break: %s %s %s', [Name, ssrc.lastResponse, sdst.lastResponse]));
+			ssrc.DestroySocket(False);
+			sdst.DestroySocket(False);
+			mainpazo.errorreason := 'Long race break';
+			readyerror := True;
+			exit;
+		end;
+		end;
 
-    if (SecondsBetween(Now, started) > 600) then
-    begin
-      Debug(dpError, c_section, Format('[iNFO] Long race break: %s %s %s', [Name, ssrc.lastResponse, sdst.lastResponse]));
-      ssrc.DestroySocket(False);
-      sdst.DestroySocket(False);
-      mainpazo.errorreason := 'Long race break';
-      readyerror := True;
-      exit;
-    end;
-  end;
+		Debug(dpSpam, 'taskrace', '<-- WAIT');
 
-  Debug(dpSpam, 'taskrace', '<-- WAIT');
 
   //TODO: [ERROR FXP] TPazoRaceTask DST/0, RACE 4727 SRC->DST: Mortal.Kombat.XL-PLAZA plaza-mortal.kombat.xl.s04 (36) 421 421 Timeout (60 seconds): closing control connection.
   //      RACE 4727 SRC->DST: Mortal.Kombat.XL-PLAZA plaza-mortal.kombat.xl.s04 (36) 238.42mB @ 1.16mB/s <-- shouldn't be there, wasn't transfered because a timeout occur
