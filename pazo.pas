@@ -1076,7 +1076,7 @@ begin
         s := Stats(False, False);
         if ((lastannounceirc <> s) and (s <> '')) then
         begin
-				  irc_addstats(Format('<c10>[<b>STATS</b>]</c> %s %s (%d):', [rls.section, rls.rlsname, GetCountOfCachedFiles, s]));
+          irc_addstats(Format('<c10>[<b>STATS</b>]</c> %s %s (%d):', [rls.section, rls.rlsname, GetCountOfCachedFiles, s]));
           irc_AddstatsB(Stats(False, True));
           lastannounceirc := s;
         end;
