@@ -2435,10 +2435,9 @@ begin
 			readyerror := True;
 			exit;
 		end;
-		end;
+  end;
 
-		Debug(dpSpam, 'taskrace', '<-- WAIT');
-
+  Debug(dpSpam, 'taskrace', '<-- WAIT');
 
   //TODO: [ERROR FXP] TPazoRaceTask DST/0, RACE 4727 SRC->DST: Mortal.Kombat.XL-PLAZA plaza-mortal.kombat.xl.s04 (36) 421 421 Timeout (60 seconds): closing control connection.
   //      RACE 4727 SRC->DST: Mortal.Kombat.XL-PLAZA plaza-mortal.kombat.xl.s04 (36) 238.42mB @ 1.16mB/s <-- shouldn't be there, wasn't transfered because a timeout occur

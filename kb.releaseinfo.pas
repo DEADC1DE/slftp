@@ -1467,85 +1467,79 @@ var
   ps: TPazoSite;
   i, j: integer;
   imdbdata: TDbImdbData;
+  ir: TIMDBRelease;
+  fErrorString: String;
 begin
   Result := False;
   aktualizalva := True;
+  fErrorString:= '';
 
   try
     pazo := FindPazoByName(section, rlsname);
 
-    dbaddimdb_cs.Enter;
-    try
-      i := last_imdbdata.IndexOf(rlsname);
-    finally
-      dbaddimdb_cs.Leave;
-    end;
-
-    if i = -1 then
+    imdbdata := GetImdbMovieData(pazo.rls.rlsname);
+    if (imdbdata = nil) or UpdateMovieInDbWithImdbDataNeeded(imdbdata) then
     begin
-      // no imdb infos
-
-      // check if we have a nfo
-      i := last_addnfo.IndexOf(rlsname);
-      if i <> -1 then
-      begin
-        // we have the nfo
-        Result := True;
-        exit;
-      end;
-
-      // no nfo, start searching nfo
+    // we have the nfo but update needed
+      Debug(dpError, rsections, Format('[Info] [Kb.ReleaseInfo] Get or Update IMDB-Infos for ReleaseName: %s', [rlsname]));
       for j := pazo.PazoSitesList.Count - 1 downto 0 do
       begin
         ps := TPazoSite(pazo.PazoSitesList[j]);
         try
           AddTask(TPazoSiteNfoTask.Create('', '', ps.Name, pazo, 1));
         except
-          on e: Exception do
+        on e: Exception do
           begin
             Debug(dpError, rsections, Format('[EXCEPTION] TIMDBRelease.Aktualizal.AddTask: %s', [e.Message]));
           end;
         end;
       end;
-
       Result := True;
+      exit;
     end
     else
     begin
-      // we already have imdb infos
-      try
-        dbaddimdb_cs.Enter;
-        try
-          imdbdata := TDbImdbData(last_imdbdata.Objects[i]);
-        finally
-          dbaddimdb_cs.Leave;
-        end;
-
-        imdb_id := imdbdata.imdb_id;
-        imdb_year := imdbdata.imdb_year;
-        imdb_languages.DelimitedText := imdbdata.imdb_languages.DelimitedText;
-        imdb_countries.DelimitedText := imdbdata.imdb_countries.DelimitedText;
-        imdb_genres.DelimitedText := imdbdata.imdb_genres.DelimitedText;
-        imdb_screens := imdbdata.imdb_screens;
-        imdb_rating := imdbdata.imdb_rating;
-        imdb_votes := imdbdata.imdb_votes;
-        CineYear := imdbdata.imdb_cineyear;
-        imdb_ldt := imdbdata.imdb_ldt;
-        imdb_wide := imdbdata.imdb_wide;
-        imdb_festival := imdbdata.imdb_festival;
-        imdb_stvm := imdbdata.imdb_stvm;
-        imdb_stvs := imdbdata.imdb_stvs;
-        imdb_type := imdbdata.imdb_type;
-
-        FLookupDone := True;
-      except
-        on e: Exception do
+    try
+        // we already have imdb infos
+        irc_Addstats(Format('(<c9>i</c>).....<c2><b>IMDB</b></c>........ <c0><b>for : %s</b></c> .......: found in Database!', [pazo.rls.rlsname]));
+        if pazo.rls is TIMDBRelease then
         begin
-          Debug(dpError, rsections, Format('[EXCEPTION] TIMDBRelease.Aktualizal Set: %s', [e.Message]));
+          fErrorString := 'imdb_id';
+          imdb_id := imdbdata.imdb_id;
+          fErrorString := 'imdb_year';
+          imdb_year := imdbdata.imdb_year;
+          fErrorString := 'imdb_languages';
+          imdb_languages.CommaText := imdbdata.imdb_languages.CommaText;
+          fErrorString := 'imdb_countries';
+          imdb_countries.CommaText := imdbdata.imdb_countries.CommaText;
+          fErrorString := 'imdb_genres';
+          imdb_genres.CommaText := imdbdata.imdb_genres.CommaText;
+          fErrorString := 'imdb_screens';
+          imdb_screens := imdbdata.imdb_screens;
+          fErrorString := 'imdb_rating';
+          imdb_rating := imdbdata.imdb_rating;
+          fErrorString := 'imdb_votes';
+          imdb_votes := imdbdata.imdb_votes;
+          fErrorString := 'CineYear';
+          CineYear := imdbdata.imdb_cineyear;
+          fErrorString := 'imdb_ldt';
+          imdb_ldt := imdbdata.imdb_ldt;
+          fErrorString := 'imdb_wide';
+          imdb_wide := imdbdata.imdb_wide;
+          fErrorString := 'imdb_festival';
+          imdb_festival := imdbdata.imdb_festival;
+          fErrorString := 'imdb_stvm';
+          imdb_stvm := imdbdata.imdb_stvm;
+          fErrorString := 'imdb_stvs';
+          fErrorString := fErrorString + ' - ' + imdbdata.imdb_stvs;
+          imdb_stvs := imdbdata.imdb_stvs;
+          fErrorString := 'FLookupDone';
+          FLookupDone := True;
         end;
+        Result := True;
+      finally
+        imdbdata.Free;
       end;
-
-      Result := True;
     end;
   except
     on e: Exception do

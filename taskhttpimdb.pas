@@ -3,36 +3,9 @@ unit taskhttpimdb;
 interface
 
 uses
-  tasksunit, Generics.Collections, Variants;
+  tasksunit, Generics.Collections, Variants, dbaddimdb;
 
 type
-  { @abstract(Class for IMDb release date information) }
-  TIMDbReleaseDateInfo = class
-  private
-    FCountry: String; //< country name
-    FReleaseDate: String; //< release date
-    FExtraInfo: String; //< additional info like dvd premiere, festival, location of premiere, etc
-  public
-    { Creates a class for specific release date infos }
-    constructor Create(const aCountry, aReleaseDate, aExtraInfo: String);
-
-    property Country: String read FCountry;
-    property ReleaseDate: String read FReleaseDate;
-    property ExtraInfo: String read FExtraInfo;
-  end;
-
-  { @abstract(Class for IMDb also known as (AKA) information) }
-  TIMDbAlsoKnownAsInfo = class
-  private
-    FCountry: String; //< country name (+ extra title information)
-    FTitle: String; //< title name
-  public
-    { Creates a class for specific AKA infos }
-    constructor Create(const aCountry, aTitle: String);
-
-    property Country: String read FCountry;
-    property Title: String read FTitle;
-  end;
 
   { @abstract(Extracts IMDb information from HTML page source) }
   THtmlIMDbParser = class
@@ -134,27 +107,10 @@ implementation
 
 uses
   SysUtils, irc, StrUtils, debugunit, dateutils, configunit, kb, kb.releaseinfo, http,
-  sitesunit, RegExpr, dbaddimdb, mystrings, dbtvinfo, sllanguagebase, mormot.core.base, mormot.core.variants;
+  sitesunit, RegExpr, mystrings, dbtvinfo, sllanguagebase, mormot.core.base, mormot.core.variants;
 
 const
   section = 'taskhttpimdb';
-
-{ TIMDbReleaseDateInfo }
-
-constructor TIMDbReleaseDateInfo.Create(const aCountry, aReleaseDate, aExtraInfo: String);
-begin
-  FCountry := aCountry;
-  FReleaseDate := aReleaseDate;
-  FExtraInfo := aExtraInfo;
-end;
-
-{ TIMDbAlsoKnownAsInfo }
-
-constructor TIMDbAlsoKnownAsInfo.Create(const aCountry, aTitle: String);
-begin
-  FCountry := aCountry;
-  FTitle := aTitle;
-end;
 
 { THtmlIMDbParser }
 
@@ -179,7 +135,6 @@ begin
   fCount := fEndIndex - fStartIndex;
   fJsonString := Copy(aPageSource, fStartIndex + Length('type="application/json">'), fCount);
   fJsonObject := _JsonFast(fJsonString);
-
 
   doc := TDocVariantData(fJsonObject);
   doc.GetAsDocVariant('props', pdoc);
@@ -333,15 +288,29 @@ end;
 
 class procedure THtmlIMDbParser.ParseReleaseDateInfo(const aPageSource: String; var aReleaseDateInfoList: TObjectList<TIMDbReleaseDateInfo>);
 var
-  rr: TRegExpr;
+  rr,rdate: TRegExpr;
   pos1, pos2: integer;
   fCountryCode: String;
   fCountry: String;
-  fReleaseDate: String;
+  fReleaseDateString: String;
   fExtraInfo: String;
+  fStringHelper: String;
+  fReleaseDate: TDateTime;
+  fReleaseDateSplit: TArray<String>;
+  fReleaseDateYear: integer;
+  fReleaseDateMonth: integer;
+  fReleaseDateDay: integer;
   fExtractedPageSource: string;
+  Result, fFound: boolean;
+  fCnt: Integer;
+	FormatSettings: {$IFDEF FPC}TFormatSettings absolute DefaultFormatSettings{$ELSE}TFormatSettings{$ENDIF};
 begin
 
+  FormatSettings := {$IFDEF FPC}DefaultFormatSettings{$ELSE}TFormatSettings.Create('us-us'){$ENDIF};
+  FormatSettings.ShortDateFormat := 'dd.mm.yyyy';
+  FormatSettings.LongDateFormat := 'dd.mm.yyyy';
+  FormatSettings.DateSeparator := '.';
+  
   // we need to copy this string to another variable because else we would alter the page source that we will still need for other stuff (only on FPC it seems)
   fExtractedPageSource := aPageSource;
 
@@ -359,10 +328,14 @@ begin
 
     if rr.Exec(fExtractedPageSource) then
     begin
+    try
       repeat
+
+        Result := False;
+
         fCountryCode := Trim(rr.Match[1]);
         fCountry := Trim(rr.Match[2]);
-        fReleaseDate := Trim(rr.Match[3]);
+        fReleaseDateString := Trim(rr.Match[3]);
         fExtraInfo := Trim(rr.Match[4]);
 
         fCountry := RewriteUSAandUK(fCountry);
@@ -370,11 +343,127 @@ begin
         if ExcludeCountry(fCountry) then
           Continue;
 
-        aReleaseDateInfoList.Add(TIMDbReleaseDateInfo.Create(fCountry, fReleaseDate, HTMLDecode(fExtraInfo)));
+        //if TryEncodeDate(fReleaseDateString) then
+        //  fReleaseDate := parse
+
+        // try to get a TDateTime from the date string of the web page. Date from is coming like this: '30 September 2018'
+        try
+          try
+            //// Match October 3, 2012
+            rdate:=TRegExpr.Create;
+            rdate.ModifierI:=True;
+            rdate.ModifierG:=True;
+            rdate.Expression:='(\D+)\s*(\d{1,2})\s*,\s*(\d{4})';
+            rdate.InputString:= fReleaseDateString;
+            fFound:=rdate.exec;
+            If fFound and not Result Then
+              Begin
+                //Index 0 is the Match itself. From Index 1 up are the capturing groups
+                //For i:=1 To r.SubExprMatchCount Do Writeln(r.Match[i]);
+                fStringHelper := TRIM(rdate.Match[1]);
+                fReleaseDateMonth := 0;
+                fReleaseDateDay := StrToIntDef(rdate.Match[2],1);
+                fReleaseDateYear := StrToIntDef(rdate.Match[3],1899);
+                for fCnt := Low(FormatSettings.LongMonthNames) to High(FormatSettings.LongMonthNames) do
+                begin
+                  if (fStringHelper = FormatSettings.LongMonthNames[fCnt]) then
+                  begin
+                    fReleaseDateMonth := fCnt;
+                    Result := True;
+                    break;
+                  end;
+                end;
+              end;
+
+            //// Match October 2012
+            rdate.Expression:='(\D+)\s* \s*(\d{4})';
+            rdate.InputString:= fReleaseDateString;
+            fFound:=rdate.exec;
+            If fFound and not Result Then
+              Begin
+                //Index 0 is the Match itself. From Index 1 up are the capturing groups
+                //For i:=1 To r.SubExprMatchCount Do Writeln(r.Match[i]);
+                fStringHelper := TRIM(rdate.Match[1]);
+                fReleaseDateMonth := 0;
+                fReleaseDateDay := 1;
+                fReleaseDateYear := StrToIntDef(rdate.Match[2],1899);
+                for fCnt := Low(FormatSettings.LongMonthNames) to High(FormatSettings.LongMonthNames) do
+                begin
+                  if (fStringHelper = FormatSettings.LongMonthNames[fCnt]) then
+                  begin
+                    fReleaseDateMonth := fCnt;
+                    Result := True;
+                    break;
+                  end;
+                end;
+              end;
+
+            //// Match (2014) with only year in brackets
+            if not Result then
+            begin
+              rdate.Create('\((?P<year>\d\d\d\d)\)');
+              rdate.InputString:= fReleaseDateString;
+              fFound:=rdate.exec;
+              if fFound then
+               begin
+                //For i:=1 To r.SubExprMatchCount Do Writeln(r.Match[i]);
+                fReleaseDateMonth := 1;
+                fReleaseDateDay := 1;
+                fReleaseDateYear := StrToIntDef(TRIM(rdate.Match[1]),1899);
+               end;
+
+              if (fReleaseDateMonth = 0) then
+                  begin
+                    //Debug(dpMessage, section, 'IMDB release date info: unable to parse as DateTime: ' + fReleaseDateString + ' (' + e.Message + ')');
+                    raise Exception.Create('Unknown month: ' + fStringHelper);
+                  end;
+            end;
+
+            //// Match 2014 with only year without brackets
+            if not Result then
+            begin
+              rdate.Create('^\d{4}$');
+              rdate.InputString:= fReleaseDateString;
+              fFound:=rdate.exec;
+              if fFound then
+               begin
+                //For i:=1 To r.SubExprMatchCount Do Writeln(r.Match[i]);
+                fReleaseDateMonth := 1;
+                fReleaseDateDay := 1;
+                fReleaseDateYear := StrToIntDef(TRIM(rdate.Match[1]),1899);
+               end;
+
+              if (fReleaseDateMonth = 0) then
+                  begin
+                    //Debug(dpMessage, section, 'IMDB release date info: unable to parse as DateTime: ' + fReleaseDateString + ' (' + e.Message + ')');
+                    raise Exception.Create('Unknown month: ' + fStringHelper);
+                  end;
+            end;
+
+            fReleaseDate := EncodeDate(fReleaseDateYear, fReleaseDateMonth, fReleaseDateDay);
+            Result := True;
+
+            aReleaseDateInfoList.Add(TIMDbReleaseDateInfo.Create(fCountry, fExtraInfo, fReleaseDate));
+          except
+          on e: Exception do
+          begin
+            Debug(dpError, section, 'IMDB release date info: unable to parse as DateTime: ' + fReleaseDateString + ' (' + e.Message + ')');
+            Continue;
+          end;
+        end;
+      finally
+        if assigned(rdate) then
+          rdate.Free;
+      end;
+
       until not rr.ExecNext;
+
+    finally
+      rr.Free;
     end;
+  end;
   finally
-    rr.Free;
+
   end;
 end;
 
@@ -588,9 +677,8 @@ var
   fIsFestival: Boolean;
   fIsWide: Boolean;
   fIsLimited: Boolean;
-  fStatusReason: String;
-  fStatusReasonList: TList<String>;
   fImdbReleaseDateInfoList: TObjectList<TIMDbReleaseDateInfo>;
+  fIMDbAlsoKnownAsInfoList: TObjectList<TIMDbAlsoKnownAsInfo>;
   fImdbReleaseDateInfo: TIMDbReleaseDateInfo;
   fImdbReleaseDate: String;
   fImdbRlsdateExtraInfo: String;
@@ -608,8 +696,42 @@ var
   fBOMReleaseGroupPair, fBOMCountryLinkPair: TPair<String, String>;
   fBOMCountryScreens: TDictionary<String, Integer>; // countryname and screens count
   fBomScreensCount: Integer;
+
+  fFound_LastImdb: Integer;
+  fFound: Boolean;
+
 begin
   Result := False;
+
+    // exit if imdb info is already known in last_imdbdata
+  gDbAddimdb_cs.Enter;
+  try
+    fFound_LastImdb := last_addimdb.IndexOf(getMovieNameWithoutSceneTags(FReleaseName));
+    if fFound_LastImdb = -1 then
+    begin
+      Debug(dpError, section, Format('[Info] taskhttpimdb add Release to temp Hashlist: %s - %s', [FReleaseName, getMovieNameWithoutSceneTags(FReleaseName)]));
+      last_addimdb.add(getMovieNameWithoutSceneTags(FReleaseName));
+    end;
+  finally
+    gDbAddimdb_cs.Leave;
+  end;
+
+	try
+    ffound := (fFound_LastImdb <> -1);
+    if ffound = True then
+    begin
+      Result := True;
+      ready := True;
+      exit;
+    end;
+  except
+    on e: Exception do
+    begin
+      Debug(dpError, section, Format('[EXCEPTION] taskhttpimdb last_imdbdata.IndexOf: %s', [e.Message]));
+      readyerror := True;
+      exit;
+    end;
+  end;
 
   (* Get IMDb main page *)
   if not HttpGetUrl('https://www.imdb.com/title/' + FImdbTitleID + '/', fImdbMainPage, fHttpGetErrMsg) then
@@ -658,32 +780,6 @@ begin
   // 3. movie extra info have lowest priority as it might not indicate the correct info for each country
 
 
-  fIsSTV := False;
-  fIsLimited := False;
-  fIsWide := True;
-  fIsFestival := False;
-
-  fStatusReasonList := TList<String>.Create;
-  try
-    (* Check global STV status based on title *)
-    fIsSTV := TIMDbInfoChecks.IsSTVBasedOnTitleExtraInfo(fImdbTitleExtraInfo);
-    if fIsSTV then
-    begin
-      fStatusReasonList.Add(Format('STV due to title extra info: %s', [fImdbTitleExtraInfo]));
-      Debug(dpSpam, section, Format('Status from Releasename: %s', [fStatusReasonList.Last]));
-    end;
-
-    (* Check if it's a TV release *)
-    // if we get values for season or episode -> tv show which doesn't has any screens
-    getShowValues(FReleaseName, fTvShowname, fTvSeason, fTvEpisode);
-    if not ((fTvSeason > 0) or (fTvEpisode > 0) or (fTvSeason = Ord(tvDatedShow))
-           or (fTvSeason = Ord(tvRegularSerieWithoutSeason)) or (fTvEpisode = Ord(tvNoEpisodeTag))) then
-    begin
-      fIsSTV := True;
-      fStatusReasonList.Add(Format('STV due to being a TV show with season %d and/or episode %d', [fTvSeason, fTvEpisode]));
-      Debug(dpSpam, section, Format('Status from Releasename: %s', [fStatusReasonList.Last]));
-    end;
-
     (* Get IMDb releaseinfo page *)
     if not HttpGetUrl('https://www.imdb.com/title/' + FImdbTitleID + '/releaseinfo', fImdbReleasePage, fHttpGetErrMsg) then
     begin
@@ -696,111 +792,11 @@ begin
 
     (* Extract releaseinfo *)
     fImdbReleaseDateInfoList := TObjectList<TIMDbReleaseDateInfo>.Create(True);
-    try
-      THtmlIMDbParser.ParseReleaseDateInfo(fImdbReleasePage, fImdbReleaseDateInfoList);
+    THtmlIMDbParser.ParseReleaseDateInfo(fImdbReleasePage, fImdbReleaseDateInfoList);
 
-          { NOTE: all that needs to be done separately for each dedicated releasename }
-          (* get language of release (should be moved later to kb? as it depends on the actual releasename) *)
-          fLanguageFromReleasename := FindLanguageOnDirectory(FReleaseName);
-          if (fLanguageFromReleasename <> 'English') then
-            fStrHelper := fLanguageFromReleasename
-          else
-            fStrHelper := TIMDbInfoChecks.EstimateEnglishCountryOrder(fImdbCountry);
-
-          fReleasenameCountry := TMapLanguageCountry.GetCountrynameByLanguage(fStrHelper);
-          Debug(dpSpam, section, Format('Release language %s maps to country %s', [fLanguageFromReleasename, fReleasenameCountry]));
-          if fReleasenameCountry = '' then
-          begin
-            Debug(dpError, section, Format('[ERROR] No mapping for language %s to a country found', [fLanguageFromReleasename]));
-            ready := True;
-            Result := True;
-            Exit;
-          end;
-
-          (* STV infos *)
-          for fImdbReleaseDateInfo in fImdbReleaseDateInfoList do
-          begin
-            if fImdbReleaseDateInfo.FCountry = fReleasenameCountry then
-            begin
-              fImdbReleaseDate := fImdbReleaseDateInfo.FReleaseDate;
-              fImdbRlsdateExtraInfo := fImdbReleaseDateInfo.FExtraInfo;
-
-              if fImdbRlsdateExtraInfo <> '' then
-              begin
-                fRegExpr := TRegexpr.Create;
-                try
-                  fRegExpr.ModifierI := True;
-
-                  fRegExpr.Expression := '(DVD|video|TV|Bluray|Blueray)(\s|\.|\-)?premiere';
-                  if fRegExpr.Exec(fImdbRlsdateExtraInfo) then
-                  begin
-                    fIsSTV := True;
-                    fStatusReasonList.Add(Format('STV in %s due to %s on %s', [fReleasenameCountry, fImdbRlsdateExtraInfo, fImdbReleaseDate]));
-                    Debug(dpSpam, section, Format('Status from Releasepage: %s', [fStatusReasonList.Last]));
-                    Break;
-                  end;
-                finally
-                  fRegExpr.free;
-                end;
-              end;
-            end;
-          end;
-
-          (* Festival info is independent from STV/Limited/Wide -> screened on a festival for movie enthuastics *)
-          for fImdbReleaseDateInfo in fImdbReleaseDateInfoList do
-          begin
-            if fImdbReleaseDateInfo.FCountry = fReleasenameCountry then
-            begin
-              fImdbReleaseDate := fImdbReleaseDateInfo.FReleaseDate;
-              fImdbRlsdateExtraInfo := fImdbReleaseDateInfo.FExtraInfo;
-
-              if fImdbRlsdateExtraInfo <> '' then
-              begin
-                fRegExpr := TRegexpr.Create;
-                try
-                  fRegExpr.ModifierI := True;
-
-                  fRegExpr.Expression := 'F(estival|ilmfest|est|ilm(\s|\.|\-)?Market?)';
-                  if fRegExpr.Exec(fImdbRlsdateExtraInfo) then
-                  begin
-                    fIsFestival := True;
-                    fStatusReasonList.Add(Format('Festival in %s due to %s on %s', [fReleasenameCountry, fImdbRlsdateExtraInfo, fImdbReleaseDate]));
-                    Debug(dpSpam, section, Format('Status from Releasepage: %s', [fStatusReasonList.Last]));
-                    Break;
-                  end;
-                finally
-                  fRegExpr.free;
-                end;
-              end;
-            end;
-          end;
-
-          (* Cinedate info *)
-          if not fIsSTV then
-          begin
-            // pick first entry where third row (extra info) is empty
-            for fImdbReleaseDateInfo in fImdbReleaseDateInfoList do
-            begin
-              if fImdbReleaseDateInfo.FCountry = fReleasenameCountry then
-              begin
-                fImdbReleaseDate := fImdbReleaseDateInfo.FReleaseDate;
-                fImdbRlsdateExtraInfo := fImdbReleaseDateInfo.FExtraInfo;
-
-                if fImdbRlsdateExtraInfo = '' then
-                begin
-                  fImdbCineYear := StrToIntDef(Copy(fImdbReleaseDate, Length(fImdbReleaseDate) - 4, 4), 0);
-                  fStatusReasonList.Add(Format('Cine year for %s is %d taken from %s', [fReleasenameCountry, fImdbCineYear, fImdbReleaseDate]));
-                  Debug(dpSpam, section, Format('Status from Releasepage: %s', [fStatusReasonList.Last]));
-                  Break;
-                end;
-              end;
-            end;
-          end;
-          { NOTE: all that needs to be done separately for each dedicated releasename }
-    finally
-      fImdbReleaseDateInfoList.Free;
-    end;
-
+    (* Extract AlsoKnownAsInfo *)
+    fIMDbAlsoKnownAsInfoList := TObjectList<TIMDbAlsoKnownAsInfo>.Create(True);
+    THtmlIMDbParser.ParseAlsoKnownAsInfo(fImdbReleasePage, fIMDbAlsoKnownAsInfoList);
 
     (* Get Box Office Mojo main page *)
     if not HttpGetUrl('https://www.boxofficemojo.com/title/' + FImdbTitleID + '/', fBomMainPage, fHttpGetErrMsg) then
@@ -856,7 +852,6 @@ begin
       THtmlBoxOfficeMojoParser.GetCountrySpecificLinks(fBomMainPage, fBOMCountryLinks);
 
       fBOMCountryScreens := TDictionary<String, Integer>.Create;
-      try
         for fBOMCountryLinkPair in fBOMCountryLinks do
         begin
           // only get info for the current country because the stuff for the other countries is not used atm and it's just making the IMDB lookup slower
@@ -876,53 +871,9 @@ begin
             fBOMCountryScreens.Add(fBOMCountryLinkPair.Key, THtmlBoxOfficeMojoParser.GetWidestScreensCount(fBomCountryPage));
           end;
         end;
-
-        { NOTE: all that needs to be done separately for each dedicated releasename based on the language->country -- check USA & UK for english }
-        if not fBOMCountryScreens.TryGetValue(fReleasenameCountry, fBomScreensCount) then
-          fBomScreensCount := 0;
-        { NOTE: all that needs to be done separately for each dedicated releasename based on the language->country -- check USA & UK for english }
-      finally
-        fBOMCountryScreens.Free;
-      end;
     finally
       fBOMCountryLinks.Free;
     end;
-
-    (* Check screen count *)
-    if fBomScreensCount = 0 then
-    begin
-      fIsSTV := True;
-      fIsLimited := False;
-      fIsWide := False;
-      fStatusReasonList.Add(Format('STV due to screens count being zero for %s', [fReleasenameCountry]));
-      Debug(dpSpam, section, Format('Status from Screen count: %s', [fStatusReasonList.Last]));
-    end
-    else if (fBomScreensCount < 600) then
-    begin
-      // limited release when playing at fewer than 600 theaters
-      fIsSTV := False;
-      fIsLimited := True;
-      fIsWide := False;
-      fStatusReasonList.Add(Format('Limited due to screens %d < 600 for %s', [fBomScreensCount, fReleasenameCountry]));
-      Debug(dpSpam, section, Format('Status from Screen count: %s', [fStatusReasonList.Last]));
-    end
-    else
-    begin
-      // movie in wide release or about to go wide when it is playing at 600 or more theaters
-      fIsSTV := False;
-      fIsLimited := False;
-      fIsWide := True;
-      fStatusReasonList.Add(Format('Wide due to screens %d => 600 for %s', [fBomScreensCount, fReleasenameCountry]));
-      Debug(dpSpam, section, Format('Status from Screen count: %s', [fStatusReasonList.Last]));
-    end;
-
-    for i := 0 to fStatusReasonList.Count - 1 do
-    begin
-      fStatusReason := fStatusReason + Format('%d - %s%s', [i + 1, fStatusReasonList[i], #13#10]);
-    end;
-  finally
-    fStatusReasonList.Free;
-  end;
 
 
   // create dataset to get it work for the moment
@@ -932,24 +883,23 @@ begin
   imdbdata.imdb_languages.CommaText := fImdbLanguage;
   imdbdata.imdb_countries.CommaText := fImdbCountry;
   imdbdata.imdb_genres.CommaText := fImdbGenre;
-  imdbdata.imdb_screens := fBomScreensCount;
   imdbdata.imdb_rating := fImdbRating;
   imdbdata.imdb_votes := fImdbVotes;
-  imdbdata.imdb_cineyear := fImdbCineYear;
-  imdbdata.imdb_ldt := fIsLimited;
-  imdbdata.imdb_wide := fIsWide;
-  imdbdata.imdb_festival := fIsFestival;
-  imdbdata.imdb_stvm := fIsSTV;
-  imdbdata.imdb_stvs := fStatusReason;
-  imdbdata.imdb_type := fImdbTitleExtraInfo;
   imdbdata.imdb_origtitle := fImdbOriginalTitle;
   try
-    dbaddimdb_SaveImdbData(FReleaseName, imdbdata);
-  except
-    on e: Exception do
-    begin
-      Debug(dpError, section, Format('[EXCEPTION] TPazoHTTPImdbTask dbaddimdb_SaveImdb: %s ', [e.Message]));
+    try
+      dbaddimdb_SaveImdbData(FReleaseName, imdbdata, fIMDbAlsoKnownAsInfoList, fImdbReleaseDateInfoList, fBOMCountryScreens);
+    except
+      on e: Exception do
+      begin
+        Debug(dpError, section, Format('[EXCEPTION] TPazoHTTPImdbTask dbaddimdb_SaveImdb: %s ', [e.Message]));
+      end;
     end;
+  finally
+    fImdbReleaseDateInfoList.Free;
+    fIMDbAlsoKnownAsInfoList.Free;
+    fBOMCountryScreens.Free;
+    imdbdata.Free;
   end;
 
   ready := True;
@@ -971,4 +921,3 @@ begin
 end;
 
 end.
-
