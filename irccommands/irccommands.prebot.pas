@@ -162,7 +162,7 @@ begin
 
     kb_Add(netname, channel, sitename, section, '', kbeCOMPLETE, dir, '', True);
     p := FindPazoByKey(section + '-' + dir);
-    if p = nil then
+    if p == nil then
     begin
       irc_addtext(netname, channel, 'No valid kbID found for %s-%s!', [section, dir]);
       exit; // this is not possible
@@ -379,14 +379,13 @@ var
   i: integer;
   sr: TSiteResponse;
   d: TDirList;
-  addednumber: integer;
   elozo: TDateTime;
   precmd: String;
   mind, maxd: TDateTime;
   mins, maxs: String;
   p: TPazo;
   ps: TPazoSite;
-  sleep_value, pazo_id: integer;
+  sleep_value: integer;
 begin
   Result := False;
 
@@ -721,14 +720,12 @@ var
   fInputRlsMask: TslMask;
   fDirlist: TDirList;
   fDirlistEntry: TDirListEntry;
-  i: Integer;
   verbose: boolean;
 
   function _IrcBatch(const netname, channel: String): boolean;
   var
     ss: String;
     sitename, section, dir: String;
-    i:     integer;
     site:  TSite;
     p:     TPazo;
     ps:    TPazoSite;
@@ -909,7 +906,6 @@ end;
 function IrcBatchDel(const netname, channel, params: String): boolean;
 var
   sitename, section, dir: String;
-  i: integer;
   item: TBatchQueueItem;
 begin
   Result := False;
@@ -945,7 +941,6 @@ var
   rlsname, sitename, section, predir, dir: String;
   r: TDelreleaseTask;
   tn: TTaskNotify;
-  i: integer;
   p: TPazo;
 begin
   Result := False;
@@ -1084,8 +1079,6 @@ var
   r: TDelreleaseTask;
   tn: TTaskNotify;
   added: boolean;
-  i: integer;
-  pazo_id: integer;
   p: TPazo;
   ps: TPazoSite;
 begin
@@ -1188,7 +1181,6 @@ end;
 function IrcListPreContent(const netname, channel, params: String): boolean;
 var
   s:        TSite;
-  i:        integer;
   sitename: String;
   section:  String;
   predir:   String;

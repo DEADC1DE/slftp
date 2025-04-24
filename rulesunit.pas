@@ -1675,7 +1675,7 @@ begin
 
       if (dstps.Name <> ps.Name) then
       begin
-        if (dstps.StatusRealPreOrShouldPre) then
+        if (dstps.status in [rssShouldPre, rssRealPre]) then
         begin
           if (dstps.reason = '') then
             dstps.reason := 'Affil';
@@ -1717,7 +1717,6 @@ end;
 
 procedure RulesSave;
 var
-  i: integer;
   fEncStringlist: TEncStringlist;
   fRulesPath: String;
   fRulesBySite: TDictionary<string, TStringList>;

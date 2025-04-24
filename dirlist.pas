@@ -226,7 +226,6 @@ var
   d: TDirlistEntry;
   files: Integer;
   size: Int64;
-  tag: String;
   ResultType: String;
 begin
   Result := False;
@@ -535,7 +534,7 @@ const
   Months: array[1..12] of String = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
 var
   s1,s2,s3: String;
-  l, ev, ora,perc, honap, nap, i: Integer;
+  l, ev, ora,perc, honap, nap: Integer;
   evnelkul: Boolean;
 begin
   Result := 0;
@@ -548,11 +547,11 @@ begin
     exit;
 
   honap := 0;
-   for i := 1 to 12 do
+   for l := 1 to 12 do
    begin
-     if (Months[i] = s1) then
+     if (Months[l] = s1) then
      begin
-       honap := i;
+       honap := l;
        Break;
      end;
   end;
@@ -597,7 +596,6 @@ var
   akttimestamp: TDateTime;
   de: TDirListEntry;
   added: Boolean;
-  i: Integer;
   fTagCompleteType: TTagCompleteType;
   fParsedDirlistEntries: TObjectList<TParsedDirListEntry>;
   fParsedDirlistEntry: TParsedDirListEntry;
@@ -1084,8 +1082,6 @@ begin
 end;
 
 function TDirList.Find(const filename: String): TDirListEntry;
-var
-  de: TDirListEntry;
 begin
   Result := nil;
   if entries.Count = 0 then
@@ -1205,7 +1201,6 @@ end;
 function TDirList.FilesRacedByMe(aExcludeAsciiFiletypes: boolean = False): Integer;
 var
   de: TDirlistEntry;
-  i: Integer;
 begin
   Result := 0;
 
@@ -1481,7 +1476,7 @@ begin
       self.FDirType := dirlist.parent.DirType
     else
       self.FDirType := IsMain;
-  end;
+  end
     
   self.FDirectory := aIsDirectory;
   self.dirlist := dirlist;
@@ -1518,17 +1513,16 @@ const
   multicddirprefix : array[1..4] of String = ('cd', 'dvd', 'disc','disk');
 var
   s: String;
-  i: Integer;
 begin
   s := ReplaceText(FFilenameLowerCase, ' ', '');
   s := ReplaceText(s, '_', '');
   s := ReplaceText(s, '-', '');
 
-  for i := 1 to 4 do
+  for l := 1 to 4 do
   begin
-    if (1 = Pos(UpperCase(multicddirprefix[i]), UpperCase(s))) then
+    if (1 = Pos(UpperCase(multicddirprefix[l]), UpperCase(s))) then
     begin
-      cdno := StrToIntDef(Copy(s, Length(multicddirprefix[i]) + 1, 1000), 0);
+      cdno := StrToIntDef(Copy(s, Length(multicddirprefix[l]) + 1, 1000), 0);
       exit;
     end;
   end;
@@ -1566,7 +1560,7 @@ end;
 
 procedure TDirListEntry.RegenerateSkiplist;
 var
-  l, ldepth: Integer;
+  ldepth: Integer;
   s, fDirPathHelper: String;
   sf: TSkipListFilter;
 begin
