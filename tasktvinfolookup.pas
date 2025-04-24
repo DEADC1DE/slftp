@@ -187,7 +187,8 @@ begin
 
             res.Add(Format('<b>%s</b>: %s => %saddtvinfo %s %s', [String(jl.Child[i].Field['show'].Field['name'].Value),
               String(jl.Child[i].Field['show'].Field['url'].Value), irccmdprefix,
-              String(jl.Child[i].Field['show'].Field['id'].Value), ReplaceText(showName, '.', ' ')]));
+              String(jl.Child[i].Field['show'].Field['id'].Value), ReplaceText(showName, '.', ' ')])
+            );
         end;
       end;
 
@@ -222,8 +223,6 @@ begin
   ep_nextnum := -1;
 
   date := UnixToDateTime(3817); //1.1.1990 031337
-  nextdt := UnixToDateTime(3817);
-  prevdt := UnixToDateTime(3817);
 
   {$IFDEF MSWINDOWS}
     formatSettings := TFormatSettings.Create('en-US');

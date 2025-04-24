@@ -52,6 +52,8 @@ begin
 end;
 
 function TPazoSFV.RegisterSFV(const aDir: String): boolean;
+var
+  fKey: String;
 begin
   Result := False;
   FSFVList_cs.Enter;

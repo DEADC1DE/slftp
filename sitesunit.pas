@@ -1247,6 +1247,9 @@ begin
 end;
 
 function FindSiteByName(const aNetname, aSitename: String): TSite;
+var
+  i: integer;
+  s: TSite;
 begin
   sitesDict.TryGetValue(aSitename, Result);
 end;
@@ -1304,6 +1307,7 @@ begin
 end;
 
 procedure SitesInit;
+var s: TSite;
 begin
   sitelaststart := Now();
   bnccsere := TCriticalSection.Create;
@@ -3420,7 +3424,8 @@ end;
 
 procedure TSite.SetMaxUp(Value: integer);
 begin
-  WCInteger('max_up', integer(Value));
+  WCInteger('max_up', Value);
+  fMaxUp := Value;
 end;
 
 procedure TSite.Setconnect_timeout(const Value: integer);
@@ -3509,11 +3514,6 @@ begin
     begin
       SetDownSiteDueToCreditsOrSpace;
     end;
-  end;
-end;
-
-procedure TSite.SetKredits;
-begin
   end;
 end;
 
