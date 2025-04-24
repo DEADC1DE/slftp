@@ -705,7 +705,6 @@ var
   aktdir: String;
   failure: boolean;
   bIsMidnight: boolean;
-  r: TRule;
   rule_err: String;
   numerrors: integer;
   tname: String;
@@ -2426,15 +2425,15 @@ begin
 			end;
 		end;
 
-		if (SecondsBetween(Now, started) > 600) then
-		begin
-			Debug(dpError, c_section, Format('[iNFO] Long race break: %s %s %s', [Name, ssrc.lastResponse, sdst.lastResponse]));
-			ssrc.DestroySocket(False);
-			sdst.DestroySocket(False);
-			mainpazo.errorreason := 'Long race break';
-			readyerror := True;
-			exit;
-		end;
+    if (SecondsBetween(Now, started) > 600) then
+    begin
+      Debug(dpError, c_section, Format('[iNFO] Long race break: %s %s %s', [Name, ssrc.lastResponse, sdst.lastResponse]));
+      ssrc.DestroySocket(False);
+      sdst.DestroySocket(False);
+      mainpazo.errorreason := 'Long race break';
+      readyerror := True;
+      exit;
+    end;
   end;
 
   Debug(dpSpam, 'taskrace', '<-- WAIT');

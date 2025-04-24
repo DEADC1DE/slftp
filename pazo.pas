@@ -172,7 +172,7 @@ type
     FUniqueFileListOfRelease_cs: TCriticalSection; //< Critical section for Add calls to @link(FUniqueFileListOfRelease)
     FUniqueFileListOfRelease: TDictionary<String, Int64>; //< Dictionary with files (including subdirs) and corresponding filesize (biggest value seen on any site) for this release, Key="dir + '/' + filename" and Value=filesize
     FPazoSFV: TPazoSFV;
-	  FUDP_IP: string;                /// DEADC0DE
+    FUDP_IP: string;                /// DEADC0DE
 		FUDP_Enabled: Boolean;          /// DEADC0DE
 		FUDP_Port: integer;             /// DEADC0DE
 		FUDP_Password: string;          /// DEADC0DE
@@ -189,7 +189,7 @@ type
     function GetCountOfCachedFiles: integer;
 
     procedure QueueEvent(Sender: TObject; Value: integer);
-		procedure LoadUDPConfig;        // DEADC0DE
+    procedure LoadUDPConfig;        // DEADC0DE
 
   public
     pazo_id: integer;
@@ -1692,7 +1692,6 @@ end;
 procedure TPazoSite.ParseDupe(const aNetname, aChannel: String; aDirlist: TDirList; const aDir: string; const aFilenames: TArray<String>; const aSentByMe, aIsComplete: boolean);
 var
   de: TDirListEntry;
-  rrgx: TRegExpr;
   fTasksAdded: boolean;
   fFilesToRace: TList<TDirListEntry>;
   fFilename: string;
@@ -1811,7 +1810,6 @@ procedure TPazoSite.ProcessXDupeResponse(const aNetname, aChannel, aDir, aFullRe
 var
   dl: TDirList;
   fFileList: TList<String>;
-  fFilename: String;
 begin
   try
     dl := dirlist.FindDirlist(aDir);
