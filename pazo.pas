@@ -288,14 +288,14 @@ begin
   FUDP_Enabled := False;
   try
     IniFilePath := ExpandFileName('slftp.ini');
-    Debug(dpError, section, Format('TPazo.LoadUDPConfig: Attempting to load config from %s', [IniFilePath]));
+    Debug(dpSpam, section, Format('TPazo.LoadUDPConfig: Attempting to load config from %s', [IniFilePath]));
     Ini := TIniFile.Create(IniFilePath);
     try
       FUDP_IP := Ini.ReadString('UDPConfig', 'IP', '');
       FUDP_Port := Ini.ReadInteger('UDPConfig', 'Port', 0);
       FUDP_Password := Ini.ReadString('UDPConfig', 'Password', '');
       RawEnableUDP := Trim(Ini.ReadString('UDPConfig', 'EnableUDP', 'False'));
-      Debug(dpError, section, Format('TPazo.LoadUDPConfig: Raw EnableUDP value: %s', [RawEnableUDP]));
+      Debug(dpSpam, section, Format('TPazo.LoadUDPConfig: Raw EnableUDP value: %s', [RawEnableUDP]));
       if SameText(RawEnableUDP, 'True') then
         FUDP_Enabled := True
       else if SameText(RawEnableUDP, 'False') then
@@ -303,7 +303,7 @@ begin
       else
         FUDP_Enabled := False;
       FConfigLoaded := True;
-      Debug(dpError, section, Format('TPazo.LoadUDPConfig: Loaded config: EnableUDP=%s, IP=%s, Port=%d, Password=hidden',
+      Debug(dpSpam, section, Format('TPazo.LoadUDPConfig: Loaded config: EnableUDP=%s, IP=%s, Port=%d, Password=hidden',
         [BoolToStr(FUDP_Enabled, True), FUDP_IP, FUDP_Port]));
     finally
       Ini.Free;
@@ -311,7 +311,7 @@ begin
   except
     on E: Exception do
     begin
-      Debug(dpError, section, Format('[EXCEPTION] TPazo.LoadUDPConfig: %s', [E.Message]));
+      Debug(dpSpam, section, Format('[EXCEPTION] TPazo.LoadUDPConfig: %s', [E.Message]));
       FUDP_Enabled := False;
       FConfigLoaded := False;
     end;
@@ -803,7 +803,7 @@ begin
       except
         on e: Exception do
         begin
-          Debug(dpError, section, Format('[EXCEPTION] TPazo.RoutesText: %s', [e.Message]));
+          Debug(dpSpam, section, Format('[EXCEPTION] TPazo.RoutesText: %s', [e.Message]));
           break;
         end;
       end;
@@ -811,7 +811,7 @@ begin
 
     if Length(sitelist) <= 1 then
     begin
-      Debug(dpError, section, 'TPazo.RoutesText: Sitelist empty or too short, exiting');
+      Debug(dpSpam, section, 'TPazo.RoutesText: Sitelist empty or too short, exiting');
       Exit;
     end;
 
@@ -835,7 +835,7 @@ begin
             Debug(dpError, section, Format('TPazo.RoutesText: UDP configuration incomplete: IP=%s, Port=%d', [UDP_IP, UDP_Port]));
             Exit;
           end;
-          Debug(dpError, section, Format('TPazo.RoutesText: UDP config: IP=%s, Port=%d, Password=%s', [UDP_IP, UDP_Port, UDP_Password]));
+          Debug(dpSpam, section, Format('TPazo.RoutesText: UDP config: IP=%s, Port=%d, Password=%s', [UDP_IP, UDP_Port, UDP_Password]));
         finally
           Ini.Free;
         end;
