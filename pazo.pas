@@ -5,7 +5,7 @@ unit pazo;
 interface
 
 uses
-  Classes, kb.releaseinfo, SyncObjs, Contnrs, dirlist, skiplists, globals, IdThreadSafe, Generics.Collections, IniFiles, sfv, blcksock;
+  Classes, kb.releaseinfo, SyncObjs, Contnrs, dirlist, skiplists, globals, IdThreadSafe, Generics.Collections, IniFiles, sfv, slcriticalsection2, blcksock;
 
 type
   TQueueNotifyEvent = procedure(Sender: TObject; Value: integer) of object;
@@ -169,14 +169,15 @@ type
     lastannounceirc: String; //< last announce string for [STATS] after race
     lastannounceroutes: String; //< last announce string from @link(TPazo.RoutesText)
     FExcludeFromIncfiller: boolean; //< @true if the incomplete filler should ignore this TPazo (e.g. already handled once), @false otherwise.
-    FUniqueFileListOfRelease_cs: TCriticalSection; //< Critical section for Add calls to @link(FUniqueFileListOfRelease)
+    FUniqueFileListOfRelease_cs: TSlCriticalSection2; //< Critical section for Add calls to @link(FUniqueFileListOfRelease)
     FUniqueFileListOfRelease: TDictionary<String, Int64>; //< Dictionary with files (including subdirs) and corresponding filesize (biggest value seen on any site) for this release, Key="dir + '/' + filename" and Value=filesize
     FPazoSFV: TPazoSFV;
-    FUDP_IP: string;                /// DEADC0DE
-		FUDP_Enabled: Boolean;          /// DEADC0DE
-		FUDP_Port: integer;             /// DEADC0DE
-		FUDP_Password: string;          /// DEADC0DE
-		FConfigLoaded: Boolean;         /// DEADC0DE
+    FUDP_IP: string;                // UDP server IP from config
+		FUDP_Enabled: Boolean;          // UDP notifications enabled flag
+		FUDP_Port: integer;             // UDP server port from config  
+		FUDP_Password: string;          // UDP authentication password
+		FConfigLoaded: Boolean;         // Config loaded flag
+		FUDP_Socket: TUDPBlockSocket;   // UDP socket instance
 
     { Creates/Updates the filesize for given subdir and filename combination
       @param(aDir Location of the file inside releasedir)
@@ -189,7 +190,7 @@ type
     function GetCountOfCachedFiles: integer;
 
     procedure QueueEvent(Sender: TObject; Value: integer);
-    procedure LoadUDPConfig;        // DEADC0DE
+    procedure LoadUDPConfig;        // Load UDP config from ini file
 
   public
     pazo_id: integer;
@@ -288,32 +289,38 @@ begin
   FUDP_Enabled := False;
   try
     IniFilePath := ExpandFileName('slftp.ini');
-    Debug(dpSpam, section, Format('TPazo.LoadUDPConfig: Attempting to load config from %s', [IniFilePath]));
+		Debug(dpMessage, section, Format('Loading UDP config from %s', [IniFilePath]));
     Ini := TIniFile.Create(IniFilePath);
     try
       FUDP_IP := Ini.ReadString('UDPConfig', 'IP', '');
       FUDP_Port := Ini.ReadInteger('UDPConfig', 'Port', 0);
       FUDP_Password := Ini.ReadString('UDPConfig', 'Password', '');
       RawEnableUDP := Trim(Ini.ReadString('UDPConfig', 'EnableUDP', 'False'));
-      Debug(dpSpam, section, Format('TPazo.LoadUDPConfig: Raw EnableUDP value: %s', [RawEnableUDP]));
-      if SameText(RawEnableUDP, 'True') then
-        FUDP_Enabled := True
-      else if SameText(RawEnableUDP, 'False') then
-        FUDP_Enabled := False
-      else
-        FUDP_Enabled := False;
-      FConfigLoaded := True;
-      Debug(dpSpam, section, Format('TPazo.LoadUDPConfig: Loaded config: EnableUDP=%s, IP=%s, Port=%d, Password=hidden',
-        [BoolToStr(FUDP_Enabled, True), FUDP_IP, FUDP_Port]));
+          Debug(dpMessage, section, Format('Raw EnableUDP value: %s', [RawEnableUDP]));
+          FUDP_Enabled := SameText(Trim(RawEnableUDP), 'True');
+          FConfigLoaded := True;
+          
+          // Validate port range
+          if (FUDP_Port < 1) or (FUDP_Port > 65535) then
+          begin
+            Debug(dpError, section, Format('Invalid UDP port %d - disabling UDP', [FUDP_Port]));
+            FUDP_Enabled := False;
+          end;
+          
+          Debug(dpMessage, section, Format('UDP Config: Enabled=%s IP=%s Port=%d', 
+            [BoolToStr(FUDP_Enabled, True), FUDP_IP, FUDP_Port]));
     finally
       Ini.Free;
     end;
   except
     on E: Exception do
     begin
-      Debug(dpSpam, section, Format('[EXCEPTION] TPazo.LoadUDPConfig: %s', [E.Message]));
+      Debug(dpError, section, Format('Failed to load UDP config: %s', [E.Message]));
       FUDP_Enabled := False;
       FConfigLoaded := False;
+      FUDP_Port := 0;
+      FUDP_IP := '';
+      FUDP_Password := '';
     end;
   end;
 end;  // DEADC0DE
@@ -769,27 +776,24 @@ begin
   end;
 end;
 
-function TPazo.RoutesText: String;  // DEADC0DE
+function TPazo.RoutesText: String;  // Generate routes text and handle UDP notifications
 var
-  UDP: TUDPBlockSocket;
   i: Integer;
   sitelist: string;
   cbftp: string;
   ps: TPazoSite;
-  Ini: TIniFile;
-  UDP_IP, UDP_Password: String;
-  UDP_Port: Integer;
 begin
-  LoadUDPConfig;
+  if not FConfigLoaded then
+    LoadUDPConfig;
   if PazoSitesList.Count = 0 then
   begin
     Debug(dpError, section, 'TPazo.RoutesText: No sites in PazoSitesList, exiting');
     Exit;
   end;
 
-  if FUDP_Enabled then
-  begin
-    Debug(dpError, section, 'TPazo.RoutesText: UDP enabled, building routes text and sending UDP packet');
+    if FUDP_Enabled and (FUDP_Port > 0) and (FUDP_Port <= 65535) and (FUDP_IP <> '') then
+    begin
+      Debug(dpMessage, section, 'Sending UDP notification for %s', [rls.rlsname]);
     Result := '<c3>[ROUTES]</c> : <b>' + rls.section + ' ' + rls.rlsname + '</b> (' + IntToStr(PazoSitesList.Count) + ' sites)' + #13#10;
     cbftp := '<c3>[CBFTP]</c> : <b>' + rls.section + ' ' + rls.rlsname + '</b> ';
     sitelist := '';
@@ -803,7 +807,7 @@ begin
       except
         on e: Exception do
         begin
-          Debug(dpSpam, section, Format('[EXCEPTION] TPazo.RoutesText: %s', [e.Message]));
+          Debug(dpError, section, Format('[EXCEPTION] TPazo.RoutesText: %s', [e.Message]));
           break;
         end;
       end;
@@ -811,7 +815,7 @@ begin
 
     if Length(sitelist) <= 1 then
     begin
-      Debug(dpSpam, section, 'TPazo.RoutesText: Sitelist empty or too short, exiting');
+      Debug(dpMessage, section, 'TPazo.RoutesText: Sitelist empty or too short, exiting');
       Exit;
     end;
 
@@ -824,21 +828,12 @@ begin
       lastannounceroutes := Result;
 
       try
-        Ini := TIniFile.Create('slftp.ini');
-        try
-          UDP_IP := Ini.ReadString('UDPConfig', 'IP', '');
-          UDP_Port := Ini.ReadInteger('UDPConfig', 'Port', 0);
-          UDP_Password := Ini.ReadString('UDPConfig', 'Password', '');
-
-          if (UDP_IP = '') or (UDP_Port = 0) then
+          if (FUDP_IP = '') or (FUDP_Port = 0) then
           begin
-            Debug(dpError, section, Format('TPazo.RoutesText: UDP configuration incomplete: IP=%s, Port=%d', [UDP_IP, UDP_Port]));
+            Debug(dpError, section, Format('TPazo.RoutesText: UDP configuration incomplete: IP=%s, Port=%d', [FUDP_IP, FUDP_Port]));
             Exit;
           end;
-          Debug(dpSpam, section, Format('TPazo.RoutesText: UDP config: IP=%s, Port=%d, Password=%s', [UDP_IP, UDP_Port, UDP_Password]));
-        finally
-          Ini.Free;
-        end;
+          Debug(dpMessage, section, Format('TPazo.RoutesText: UDP config: IP=%s, Port=%d, Password=%s', [FUDP_IP, FUDP_Port, FUDP_Password]));
       except
         on E: Exception do
         begin
@@ -848,26 +843,42 @@ begin
       end;
 
       try
-        UDP := TUDPBlockSocket.Create;
-        try
-          UDP.Connect(UDP_IP, IntToStr(UDP_Port));
-          if UDP.LastError <> 0 then
-          begin
-            Debug(dpError, section, Format('TPazo.RoutesText: UDP Connect failed: %s', [UDP.LastErrorDesc]));
-            Exit;
+        if not Assigned(FUDP_Socket) then
+          FUDP_Socket := TUDPBlockSocket.Create;
+          
+          try
+            if not Assigned(FUDP_Socket) then
+            begin
+              FUDP_Socket := TUDPBlockSocket.Create;
+              FUDP_Socket.CreateSocket;
+              FUDP_Socket.SetTimeout(2000);
+            end;
+            
+            FUDP_Socket.Connect(FUDP_IP, IntToStr(FUDP_Port));
+            if FUDP_Socket.LastError <> 0 then
+            begin
+              Debug(dpError, section, 'UDP connection failed: %s', [FUDP_Socket.LastErrorDesc]);
+              FreeAndNil(FUDP_Socket);
+              Exit;
+            end;
+            
+            FUDP_Socket.SendString(FUDP_Password + ' race ' + rls.section + ' ' + rls.rlsname + ' ' + sitelist);
+            if FUDP_Socket.LastError <> 0 then
+            begin
+              Debug(dpError, section, 'UDP send failed: %s', [FUDP_Socket.LastErrorDesc]);
+              FreeAndNil(FUDP_Socket);
+              Exit;
+            end;
+            
+            Debug(dpMessage, section, 'UDP notification sent for %s', [rls.rlsname]);
+          finally
+            if Assigned(FUDP_Socket) then 
+            begin
+              FUDP_Socket.CloseSocket;
+              FreeAndNil(FUDP_Socket);
+            end;
           end;
-          UDP.SendString(UDP_Password + ' race ' + rls.section + ' ' + rls.rlsname + ' ' + sitelist);
-          if UDP.LastError <> 0 then
-          begin
-            Debug(dpError, section, Format('TPazo.RoutesText: UDP SendString failed: %s', [UDP.LastErrorDesc]));
-            Exit;
-          end;
-          Debug(dpError, section, 'TPazo.RoutesText: UDP packet sent successfully');
-          UDP.CloseSocket;
-        finally
-          UDP.Free;
-        end;
-      except
+    except
         on E: Exception do
         begin
           Debug(dpError, section, Format('[EXCEPTION] TPazo.RoutesText: UDP operation failed: %s', [E.Message]));
@@ -876,13 +887,13 @@ begin
     end
     else
     begin
-      Debug(dpError, section, 'TPazo.RoutesText: Routes text unchanged, skipping UDP send');
+      Debug(dpMessage, section, 'TPazo.RoutesText: Routes text unchanged, skipping UDP send');
       Result := '';
     end;
   end
   else
   begin
-    Debug(dpError, section, 'TPazo.RoutesText: UDP disabled (FUDP_Enabled=False), building non-UDP routes text');
+    Debug(dpMessage, section, 'TPazo.RoutesText: UDP disabled (FUDP_Enabled=False), building non-UDP routes text');
     Result := Format('<c3>[ROUTES]</c> : <b>%s</b> (%d sites)', [rls.rlsname, PazoSitesList.Count]);
     Result := Result + #13#10;
 
@@ -912,7 +923,7 @@ begin
   fKey := aDir + '/' + aFilename;
   fWasAdded := False;
 
-  FUniqueFileListOfRelease_cs.Enter;
+  FUniqueFileListOfRelease_cs.Enter('PRegisterFile');
   try
     if not FUniqueFileListOfRelease.ContainsKey(fKey) then
     begin
@@ -989,7 +1000,7 @@ begin
   stopped := False;
   ready := False;
   lastTouch := Now();
-  FUniqueFileListOfRelease_cs := TCriticalSection.Create;
+  FUniqueFileListOfRelease_cs := TSlCriticalSection2.Create('UniqueFileList_' + rls.Name + '_' + IntToStr(pazo_id));
   FUniqueFileListOfRelease := TDictionary<String, Int64>.Create(GetCaseInsensitveStringComparer);
 
   self.stated := False;
