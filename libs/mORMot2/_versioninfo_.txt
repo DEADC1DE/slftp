@@ -1,0 +1,4 @@
+d6b92b1f6b678d50449f870cbbe8ef4e1613c6b1
+hardened TDynArrayHasher
+- against any potential buffer overflow
+- some were reported by ValGrid
